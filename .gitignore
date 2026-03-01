@@ -1,0 +1,8 @@
+# Ignore compiled executable
+myprogram
+
+# Ignore object files
+*.o
+
+# Optional: Ignore log files
+*.log

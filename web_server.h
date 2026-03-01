@@ -1,3 +1,6 @@
+#ifndef WEB_SERVER_H
+#define WEB_SERVER_H
+
 // includes
 #include "request.h"
 
@@ -15,3 +18,5 @@ class web_server {
         bool check_finished(int curr_time);
         void add_request(request curr_request, int curr_time);
 };
+
+#endif

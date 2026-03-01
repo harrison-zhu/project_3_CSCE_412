@@ -1,3 +1,6 @@
+#ifndef LOAD_BALANCER_H
+#define LOAD_BALANCER_H
+
 // includes
 #include <vector>
 #include <queue>
@@ -10,10 +13,12 @@ class load_balancer {
         std::vector<web_server> servers;
         char job_type;
     public:
-        load_balancer() {};
-        load_balancer(char job_type, int num_servers) {};
+        load_balancer();
+        load_balancer(char job_type, int num_servers);
         void add_request(request new_request);
-        void add_server() {};
-        void remove_server(int curr_time) {};
-        void process_tick(int curr_time) {};
+        void add_server();
+        void remove_server(int curr_time);
+        void process_tick(int curr_time);
 };
+
+#endif

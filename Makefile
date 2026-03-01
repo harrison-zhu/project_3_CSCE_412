@@ -19,20 +19,20 @@ CXXFLAGS = -Wall -Werror -std=c++17
 
 all: myprogram
 
-myprogram: main.o LoadBalancer.o WebServer.o Request.o
-	$(CXX) $(CXXFLAGS) -o myprogram main.o LoadBalancer.o WebServer.o Request.o
+myprogram: main.o load_balancer.o web_server.o request.o
+	$(CXX) $(CXXFLAGS) -o myprogram main.o load_balancer.o web_server.o request.o
 
 main.o: main.cpp
 	$(CXX) $(CXXFLAGS) -c main.cpp
 
-LoadBalancer.o: LoadBalancer.cpp
-	$(CXX) $(CXXFLAGS) -c LoadBalancer.cpp
+load_balancer.o: load_balancer.cpp load_balancer.h web_server.h request.h
+	$(CXX) $(CXXFLAGS) -c load_balancer.cpp
 
-WebServer.o: WebServer.cpp
-	$(CXX) $(CXXFLAGS) -c WebServer.cpp
+web_server.o: web_server.cpp web_server.h request.h
+	$(CXX) $(CXXFLAGS) -c web_server.cpp
 
-Request.o: Request.cpp
-	$(CXX) $(CXXFLAGS) -c Request.cpp
+request.o: request.cpp request.h
+	$(CXX) $(CXXFLAGS) -c request.cpp
 
 clean:
 	rm -f myprogram *.o

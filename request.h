@@ -1,3 +1,6 @@
+#ifndef REQUEST_H
+#define REQUEST_H
+
 // includes added in later once i know what i am doing
 #include <string>
 
@@ -13,3 +16,5 @@ class request {
         int get_time();
         char get_job_type();
 };
+
+#endif
