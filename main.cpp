@@ -13,7 +13,7 @@ int main() {
         // should load balancer have the queue of requests?
         // makes sense as for bonus, different load balancers have diff queues
         // load balancer should also manage its own web servers?
-    load_balancer load_balancer_P();
+    load_balancer load_balancer_P;
     
     // need to initialize web servers
         // either array of them here or in the class
@@ -22,6 +22,8 @@ int main() {
     
     // may have to loop through 10000 clock cycles
         // randomly during time, create request from request class
+
+    std::cout << "Worked something" << std::endl;
 
     return 0;
 }
