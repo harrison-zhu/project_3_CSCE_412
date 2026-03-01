@@ -8,4 +8,8 @@ class request {
         int time;
         char job_type; // either P or S
     public:
-};  
+        request();
+        request(std::string IP_in, std::string IP_out, int time, char job_type);
+        int get_time();
+        char get_job_type();
+};
