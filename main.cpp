@@ -9,18 +9,20 @@
 #include "web_server.h"
 #include "load_balancer.h"
 
+// global output stream - defined here, extern in headers
+std::ostream* out = &std::cout;
+
 struct Config {
     int num_servers;
     int run_time;
-    int scale_up_threshold;    // 80
-    int scale_down_threshold;  // 50
-    int scale_wait_cycles;     // n clock cycles to wait before checking again
-    int request_time_min;      // min clock cycles a request takes
-    int request_time_max;      // max clock cycles a request takes
+    int scale_up_threshold;
+    int scale_down_threshold;
+    int scale_wait_cycles;
+    int request_time_min;
+    int request_time_max;
     int new_request_rate_min;
     int new_request_rate_max;
-    std::string output_file;  // empty string means terminal only
-    char job_type;             // 'P' processing or 'S' streaming
+    std::string output_file;
 };
 
 /**
@@ -39,7 +41,6 @@ Config load_config(const std::string& filename) {
     std::string line;
 
     while (std::getline(file, line)) {
-        // skip empty lines and comments
         if (line.empty() || line[0] == '#') continue;
 
         std::istringstream ss(line);
@@ -55,15 +56,19 @@ Config load_config(const std::string& filename) {
             else if (key == "request_time_max")     cfg.request_time_max     = std::stoi(value);
             else if (key == "new_request_rate_min") cfg.new_request_rate_min = std::stoi(value);
             else if (key == "new_request_rate_max") cfg.new_request_rate_max = std::stoi(value);
-            else if (key == "output_file") cfg.output_file = value;
-            else if (key == "job_type")             cfg.job_type             = value[0];
+            else if (key == "output_file")          cfg.output_file          = value;
         }
     }
 
     return cfg;
 }
 
-// generates a random request
+/**
+ * @brief Generates a random request with random IPs, processing time, and job type.
+ * @param process_time_low Minimum processing time.
+ * @param process_time_high Maximum processing time.
+ * @return A randomly generated request.
+ */
 request generate_request(int process_time_low, int process_time_high) {
     static std::mt19937 rng(std::random_device{}());
     std::uniform_int_distribution<int> dist(0, 255);
@@ -77,7 +82,7 @@ request generate_request(int process_time_low, int process_time_high) {
            std::to_string(dist(rng)) + "." +
            std::to_string(dist(rng)) + "." +
            std::to_string(dist(rng));
-    
+
     std::uniform_int_distribution<int> time_dist(process_time_low, process_time_high);
     int time = time_dist(rng);
 
@@ -87,52 +92,109 @@ request generate_request(int process_time_low, int process_time_high) {
     return request(IP_in, IP_out, time, job_type);
 };
 
-int main() {
+int main(int argc, char* argv[]) {
     // load config
     Config cfg = load_config("config.txt");
 
-    // open log file
-    std::ofstream log("simulation.log");
-    if (!log.is_open()) {
-        throw std::runtime_error("Could not open log file.");
+    // set up output stream - command line arg overrides config file
+    std::ofstream file_out;
+    if (argc > 1) {
+        // output file passed as command line argument
+        file_out.open(argv[1]);
+        if (!file_out.is_open()) {
+            throw std::runtime_error("Could not open output file: " + std::string(argv[1]));
+        }
+        out = &file_out;
+    } else if (!cfg.output_file.empty()) {
+        // output file set in config
+        file_out.open(cfg.output_file);
+        if (!file_out.is_open()) {
+            throw std::runtime_error("Could not open output file: " + cfg.output_file);
+        }
+        out = &file_out;
     }
+    // otherwise out stays as &std::cout
 
     // init rng for request rate
     static std::mt19937 rng(std::random_device{}());
     std::uniform_int_distribution<int> rate_dist(cfg.new_request_rate_min, cfg.new_request_rate_max);
 
     // create load balancers
-    log << "[INIT] Creating load balancers..." << std::endl;
-    std::cout << "[INIT] Creating load balancers..." << std::endl;
+    *out << "[INIT] Creating load balancers..." << std::endl;
 
-    load_balancer load_balancer_P('P', cfg.num_servers);
-    load_balancer load_balancer_S('S', cfg.num_servers);
+    load_balancer load_balancer_P('P', cfg.num_servers / 2, cfg.scale_up_threshold, cfg.scale_down_threshold, cfg.scale_wait_cycles);
+    load_balancer load_balancer_S('S', cfg.num_servers - cfg.num_servers / 2, cfg.scale_up_threshold, cfg.scale_down_threshold, cfg.scale_wait_cycles);
 
     // generate initial queue of servers * 100 requests
     int initial_requests = cfg.num_servers * 100;
-    log << "[INIT] Generating " << initial_requests << " initial requests per load balancer..." << std::endl;
-    std::cout << "[INIT] Generating " << initial_requests << " initial requests per load balancer..." << std::endl;
+    int initial_P = 0, initial_S = 0;
+
+    *out << "[INIT] Generating " << initial_requests << " initial requests..." << std::endl;
 
     for (int i = 0; i < initial_requests; i++) {
         request r = generate_request(cfg.request_time_min, cfg.request_time_max);
-        if (r.get_job_type() == 'P')
+        if (r.get_job_type() == 'P') {
             load_balancer_P.add_request(r);
-        else
+            initial_P++;
+        } else {
             load_balancer_S.add_request(r);
+            initial_S++;
+        }
     }
 
-    log << "[INIT] Initialization complete. Starting simulation..." << std::endl;
-    std::cout << "[INIT] Initialization complete. Starting simulation for " << cfg.run_time << " ticks..." << std::endl;
+    *out << "[INIT] Starting queue size - P: " << initial_P << " | S: " << initial_S << std::endl;
+    *out << "[INIT] Task time range: " << cfg.request_time_min << " - " << cfg.request_time_max << " ticks" << std::endl;
+    *out << "[INIT] Initialization complete. Starting simulation for " << cfg.run_time << " ticks..." << std::endl;
 
     // schedule first new request
     int next_request_time = rate_dist(rng);
+    int total_requests_generated = initial_requests;
 
     int time = 0;
+    while (time < cfg.run_time) {
 
-    while (time < 10000) {
+        // add new request at random intervals
+        if (time >= next_request_time) {
+            request r = generate_request(cfg.request_time_min, cfg.request_time_max);
+            if (r.get_job_type() == 'P')
+                load_balancer_P.add_request(r);
+            else
+                load_balancer_S.add_request(r);
 
+            total_requests_generated++;
+            *out << "[TICK " << time << "] New " << r.get_job_type() << " request added." << std::endl;
+            next_request_time = time + rate_dist(rng);
+        }
+
+        // process tick for each load balancer
+        load_balancer_P.process_tick(time);
+        load_balancer_S.process_tick(time);
 
         time++;
+    }
+
+    // end summary
+    int ending_queue = load_balancer_P.get_queue_size() + load_balancer_S.get_queue_size();
+
+    *out << "\n===== SIMULATION SUMMARY =====" << std::endl;
+    *out << "Run time:                  " << cfg.run_time << " ticks" << std::endl;
+    *out << "Task time range:           " << cfg.request_time_min << " - " << cfg.request_time_max << " ticks" << std::endl;
+    *out << "Starting queue size:       " << initial_requests << std::endl;
+    *out << "Ending queue size:         " << ending_queue << std::endl;
+    *out << "Total requests generated:  " << total_requests_generated << std::endl;
+    *out << "Active servers (P):        " << load_balancer_P.get_server_count() << std::endl;
+    *out << "Active servers (S):        " << load_balancer_S.get_server_count() << std::endl;
+    *out << "Scale-up events (P):       " << load_balancer_P.get_scale_ups() << std::endl;
+    *out << "Scale-up events (S):       " << load_balancer_S.get_scale_ups() << std::endl;
+    *out << "Scale-down events (P):     " << load_balancer_P.get_scale_downs() << std::endl;
+    *out << "Scale-down events (S):     " << load_balancer_S.get_scale_downs() << std::endl;
+    *out << "Servers deallocated (P):   " << load_balancer_P.get_inactive_count() << std::endl;
+    *out << "Servers deallocated (S):   " << load_balancer_S.get_inactive_count() << std::endl;
+    *out << "Rejected requests (P):     " << load_balancer_P.get_rejected() << std::endl;
+    *out << "Rejected requests (S):     " << load_balancer_S.get_rejected() << std::endl;
+
+    if (file_out.is_open()) {
+        file_out.close();
     }
 
     return 0;

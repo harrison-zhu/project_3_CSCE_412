@@ -4,5 +4,6 @@ myprogram
 # Ignore object files
 *.o
 
-# Optional: Ignore log files
+# Optional: Ignore log and txt files
 *.log
+*.txt
