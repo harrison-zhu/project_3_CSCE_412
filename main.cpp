@@ -197,8 +197,8 @@ int main(int argc, char* argv[]) {
     // create load balancers
     *out << GREEN << "[INIT] Creating load balancers..." << RESET << std::endl;
 
-    load_balancer load_balancer_P('P', cfg.num_servers, cfg.scale_up_threshold, cfg.scale_down_threshold, cfg.scale_wait_cycles);
-    load_balancer load_balancer_S('S', cfg.num_servers, cfg.scale_up_threshold, cfg.scale_down_threshold, cfg.scale_wait_cycles);
+    load_balancer load_balancer_P('P', cfg.num_servers / 2, cfg.scale_up_threshold, cfg.scale_down_threshold, cfg.scale_wait_cycles);
+    load_balancer load_balancer_S('S', cfg.num_servers - cfg.num_servers / 2, cfg.scale_up_threshold, cfg.scale_down_threshold, cfg.scale_wait_cycles);
 
     // create switch router with firewall setting
     switch_router router(&load_balancer_P, &load_balancer_S, cfg.firewall_enabled);
