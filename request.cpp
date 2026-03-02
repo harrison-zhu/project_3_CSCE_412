@@ -10,6 +10,14 @@ request::request(std::string IP_in, std::string IP_out, int time, char job_type)
     this->job_type = job_type;
 }
 
+std::string request::get_IP_in() {
+    return IP_in;
+}
+
+std::string request::get_IP_out() {
+    return IP_out;
+}
+
 int request::get_time() {
     return time;
 }

@@ -1,6 +1,7 @@
 // includes
-#include "web_server.h"
+#include <iostream>
 #include <stdexcept>
+#include "web_server.h"
 
 // define static variables
 int web_server::tot_servers = 0;
@@ -8,6 +9,21 @@ int web_server::tot_servers = 0;
 web_server::web_server(): running(false) {
     this->tot_servers++;
     this->server_number = this->tot_servers;
+
+    std::cout << "Created web server " << server_number << std::endl;
+};
+
+web_server::web_server(int curr_time) {
+    this->running = false;
+    this->tot_servers++;
+    this->server_number = this->tot_servers;
+
+    if (curr_time == 0) {
+        std::cout << "[INIT] ";
+    } else {
+        std::cout << "[Time " << curr_time << "] ";
+    }
+    std::cout << "Created web server " << server_number << std::endl;
 };
 
 web_server::web_server(request curr_request, int curr_time) {
@@ -20,9 +36,13 @@ web_server::web_server(request curr_request, int curr_time) {
 };
 
 bool web_server::check_finished(int curr_time) {
-    if (curr_time >= end_time) {
+    if (curr_time == end_time) {
         running = false;
+
+        std::cout << "[Time " << curr_time << "] ";
+        std::cout << "Web server " << server_number << " has finished running a request" << std::endl;
     }
+    
     return (!running);
 }
 
