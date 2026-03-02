@@ -53,9 +53,6 @@ void load_balancer::process_tick(int curr_time) {
             request next = request_queue.front();
             request_queue.pop();
             servers.at(i)->add_request(next, curr_time);
-            *out << "[TICK " << curr_time << "] [" << job_type << "] Server "
-                 << servers.at(i)->get_server_number()
-                 << " assigned request. Queue size: " << request_queue.size() << std::endl;
         }
     }
 

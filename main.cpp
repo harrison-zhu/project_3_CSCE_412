@@ -8,6 +8,7 @@
 #include "request.h"
 #include "web_server.h"
 #include "load_balancer.h"
+#include "switch.h"
 
 // global output stream - defined here, extern in headers
 std::ostream* out = &std::cout;
@@ -22,6 +23,8 @@ struct Config {
     int request_time_max;
     int new_request_rate_min;
     int new_request_rate_max;
+    int streaming_percent;
+    int log_interval;
     std::string output_file;
 };
 
@@ -56,6 +59,8 @@ Config load_config(const std::string& filename) {
             else if (key == "request_time_max")     cfg.request_time_max     = std::stoi(value);
             else if (key == "new_request_rate_min") cfg.new_request_rate_min = std::stoi(value);
             else if (key == "new_request_rate_max") cfg.new_request_rate_max = std::stoi(value);
+            else if (key == "streaming_percent")    cfg.streaming_percent    = std::stoi(value);
+            else if (key == "log_interval") cfg.log_interval = std::stoi(value);
             else if (key == "output_file")          cfg.output_file          = value;
         }
     }
@@ -67,9 +72,10 @@ Config load_config(const std::string& filename) {
  * @brief Generates a random request with random IPs, processing time, and job type.
  * @param process_time_low Minimum processing time.
  * @param process_time_high Maximum processing time.
+ * @param streaming_percent Percentage chance (0-100) that the request is streaming.
  * @return A randomly generated request.
  */
-request generate_request(int process_time_low, int process_time_high) {
+request generate_request(int process_time_low, int process_time_high, int streaming_percent) {
     static std::mt19937 rng(std::random_device{}());
     std::uniform_int_distribution<int> dist(0, 255);
 
@@ -86,8 +92,8 @@ request generate_request(int process_time_low, int process_time_high) {
     std::uniform_int_distribution<int> time_dist(process_time_low, process_time_high);
     int time = time_dist(rng);
 
-    std::uniform_int_distribution<int> job_dist(0, 1);
-    char job_type = (job_dist(rng) == 0) ? 'P' : 'S';
+    std::uniform_int_distribution<int> percent_dist(1, 100);
+    char job_type = (percent_dist(rng) <= streaming_percent) ? 'S' : 'P';
 
     return request(IP_in, IP_out, time, job_type);
 };
@@ -125,6 +131,9 @@ int main(int argc, char* argv[]) {
     load_balancer load_balancer_P('P', cfg.num_servers / 2, cfg.scale_up_threshold, cfg.scale_down_threshold, cfg.scale_wait_cycles);
     load_balancer load_balancer_S('S', cfg.num_servers - cfg.num_servers / 2, cfg.scale_up_threshold, cfg.scale_down_threshold, cfg.scale_wait_cycles);
 
+    // create switch router
+    switch_router router(&load_balancer_P, &load_balancer_S);
+
     // generate initial queue of servers * 100 requests
     int initial_requests = cfg.num_servers * 100;
     int initial_P = 0, initial_S = 0;
@@ -132,14 +141,9 @@ int main(int argc, char* argv[]) {
     *out << "[INIT] Generating " << initial_requests << " initial requests..." << std::endl;
 
     for (int i = 0; i < initial_requests; i++) {
-        request r = generate_request(cfg.request_time_min, cfg.request_time_max);
-        if (r.get_job_type() == 'P') {
-            load_balancer_P.add_request(r);
-            initial_P++;
-        } else {
-            load_balancer_S.add_request(r);
-            initial_S++;
-        }
+        request r = generate_request(cfg.request_time_min, cfg.request_time_max, cfg.streaming_percent);
+        if (r.get_job_type() == 'P') initial_P++;
+        else initial_S++;
     }
 
     *out << "[INIT] Starting queue size - P: " << initial_P << " | S: " << initial_S << std::endl;
@@ -153,22 +157,24 @@ int main(int argc, char* argv[]) {
     int time = 0;
     while (time < cfg.run_time) {
 
-        // add new request at random intervals
+        // add new request at random intervals via switch router
         if (time >= next_request_time) {
-            request r = generate_request(cfg.request_time_min, cfg.request_time_max);
-            if (r.get_job_type() == 'P')
-                load_balancer_P.add_request(r);
-            else
-                load_balancer_S.add_request(r);
-
+            request r = generate_request(cfg.request_time_min, cfg.request_time_max, cfg.streaming_percent);
+            router.route_request(r, time);
             total_requests_generated++;
-            *out << "[TICK " << time << "] New " << r.get_job_type() << " request added." << std::endl;
             next_request_time = time + rate_dist(rng);
         }
 
-        // process tick for each load balancer
-        load_balancer_P.process_tick(time);
-        load_balancer_S.process_tick(time);
+        // process tick for both load balancers via switch router
+        router.process_tick(time);
+
+        // log queue size every log_interval ticks
+        if (time % cfg.log_interval == 0) {
+            *out << "[TICK " << time << "] Queue size - P: " << load_balancer_P.get_queue_size()
+                 << " | S: " << load_balancer_S.get_queue_size()
+                 << " | Servers - P: " << load_balancer_P.get_server_count()
+                 << " | S: " << load_balancer_S.get_server_count() << std::endl;
+        }
 
         time++;
     }
@@ -182,6 +188,9 @@ int main(int argc, char* argv[]) {
     *out << "Starting queue size:       " << initial_requests << std::endl;
     *out << "Ending queue size:         " << ending_queue << std::endl;
     *out << "Total requests generated:  " << total_requests_generated << std::endl;
+    *out << "Routed to P:               " << router.get_routed_P() << std::endl;
+    *out << "Routed to S:               " << router.get_routed_S() << std::endl;
+    *out << "Switch rejected:           " << router.get_rejected() << std::endl;
     *out << "Active servers (P):        " << load_balancer_P.get_server_count() << std::endl;
     *out << "Active servers (S):        " << load_balancer_S.get_server_count() << std::endl;
     *out << "Scale-up events (P):       " << load_balancer_P.get_scale_ups() << std::endl;
