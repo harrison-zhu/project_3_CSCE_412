@@ -1,3 +1,15 @@
+/**
+ * @file switch.cpp
+ * @brief Implementation of the switch_router class.
+ *
+ * @details Implements request routing logic, IP range firewall checks,
+ * and load balancer tick management. The firewall uses numeric 32-bit
+ * integer comparison for accurate and efficient IP range blocking.
+ *
+ * @author Your Name
+ * @date 2025
+ */
+
 // includes
 #include <iostream>
 #include <stdexcept>

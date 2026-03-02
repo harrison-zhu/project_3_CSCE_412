@@ -7,3 +7,5 @@ myprogram
 # Optional: Ignore log and txt files
 *.log
 *.txt
+Doxyfile
+docs
