@@ -3,24 +3,33 @@
 #include <stdexcept>
 #include "load_balancer.h"
 
+// colors for logging
+#define RESET   "\033[0m"
+#define GREEN   "\033[32m"
+#define RED     "\033[31m"
+#define YELLOW  "\033[33m"
+#define CYAN    "\033[36m"
+#define MAGENTA "\033[35m"
+#define BOLD    "\033[1m"
+#define WHITE   "\033[37m"
+
 // defaults to 'P' for processing workload categorization
-load_balancer::load_balancer(): job_type('P'), scale_up_count(0), scale_down_count(0), inactive_count(0), rejected_count(0), total_requests(0), next_scale_check(0), scale_up_threshold(80), scale_down_threshold(50), scale_wait_cycles(50) {
+load_balancer::load_balancer(): job_type('P'), scale_up_count(0), scale_down_count(0), inactive_count(0), rejected_count(0), total_requests(0), next_scale_check(50), scale_up_threshold(80), scale_down_threshold(50), scale_wait_cycles(50) {
     for (size_t i = 0; i < 10; i++) {
         servers.push_back(new web_server(0, 'P'));
     }
-    *out << "[INIT] Load balancer created for job type P with 10 servers." << std::endl;
+    *out << GREEN << "[INIT] Load balancer created for job type P with 10 servers." << RESET << std::endl;
 };
 
 load_balancer::load_balancer(char job_type, int num_servers, int scale_up_threshold, int scale_down_threshold, int scale_wait_cycles)
-    : scale_up_count(0), scale_down_count(0), inactive_count(0), rejected_count(0), total_requests(0), next_scale_check(0),
+    : scale_up_count(0), scale_down_count(0), inactive_count(0), rejected_count(0), total_requests(0), next_scale_check(scale_wait_cycles),
       scale_up_threshold(scale_up_threshold), scale_down_threshold(scale_down_threshold), scale_wait_cycles(scale_wait_cycles) {
     this->job_type = job_type;
     for (size_t i = 0; i < num_servers; i++) {
         servers.push_back(new web_server(0, job_type));
     }
-    *out << "[INIT] Load balancer created for job type "
-         << job_type << " with "
-         << num_servers << " servers." << std::endl;
+    *out << GREEN << "[INIT] Load balancer created for job type "
+         << job_type << " with " << num_servers << " servers." << RESET << std::endl;
 };
 
 void load_balancer::add_request(request new_request) {
@@ -71,21 +80,20 @@ void load_balancer::process_tick(int curr_time) {
     if (queue_size > scale_up_threshold * num_servers) {
         add_server(curr_time);
         next_scale_check = curr_time + scale_wait_cycles;
-        *out << "[TICK " << curr_time << "] [" << job_type << "] Queue too large ("
+        *out << CYAN << "[TICK " << curr_time << "] [" << job_type << "] Queue too large ("
              << queue_size << " > " << scale_up_threshold * num_servers
-             << "). Added server. Total servers: " << servers.size() << std::endl;
+             << "). Added server. Total servers: " << servers.size() << RESET << std::endl;
     }
     // scale down if queue is too small, but never go below 1 server
     else if (queue_size < scale_down_threshold * num_servers && num_servers > 1) {
         try {
             remove_server(curr_time);
             next_scale_check = curr_time + scale_wait_cycles;
-            *out << "[TICK " << curr_time << "] [" << job_type << "] Queue too small ("
+            *out << RED << "[TICK " << curr_time << "] [" << job_type << "] Queue too small ("
                  << queue_size << " < " << scale_down_threshold * num_servers
-                 << "). Removed server. Total servers: " << servers.size() << std::endl;
+                 << "). Removed server. Total servers: " << servers.size() << RESET << std::endl;
         } catch (std::out_of_range& e) {
-            // all servers busy, skip scale down this cycle
-            *out << "[TICK " << curr_time << "] [" << job_type << "] Scale down skipped: " << e.what() << std::endl;
+            *out << RED << "[TICK " << curr_time << "] [" << job_type << "] Scale down skipped: " << e.what() << RESET << std::endl;
         }
     }
 };

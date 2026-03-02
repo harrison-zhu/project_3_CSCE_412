@@ -4,11 +4,22 @@
 #include <fstream>
 #include <sstream>
 #include <stdexcept>
+#include <vector>
 
 #include "request.h"
 #include "web_server.h"
 #include "load_balancer.h"
 #include "switch.h"
+
+// colors for logging
+#define RESET   "\033[0m"
+#define GREEN   "\033[32m"
+#define RED     "\033[31m"
+#define YELLOW  "\033[33m"
+#define CYAN    "\033[36m"
+#define MAGENTA "\033[35m"
+#define BOLD    "\033[1m"
+#define WHITE   "\033[37m"
 
 // global output stream - defined here, extern in headers
 std::ostream* out = &std::cout;
@@ -25,6 +36,8 @@ struct Config {
     int new_request_rate_max;
     int streaming_percent;
     int log_interval;
+    bool firewall_enabled;
+    std::vector<std::pair<std::string, std::string>> blocked_ranges; // start, end
     std::string output_file;
 };
 
@@ -51,7 +64,7 @@ Config load_config(const std::string& filename) {
 
         if (std::getline(ss, key, '=') && std::getline(ss, value)) {
             if      (key == "num_servers")          cfg.num_servers          = std::stoi(value);
-            else if (key == "run_time")              cfg.run_time             = std::stoi(value);
+            else if (key == "run_time")             cfg.run_time             = std::stoi(value);
             else if (key == "scale_up_threshold")   cfg.scale_up_threshold   = std::stoi(value);
             else if (key == "scale_down_threshold") cfg.scale_down_threshold = std::stoi(value);
             else if (key == "scale_wait_cycles")    cfg.scale_wait_cycles    = std::stoi(value);
@@ -60,8 +73,17 @@ Config load_config(const std::string& filename) {
             else if (key == "new_request_rate_min") cfg.new_request_rate_min = std::stoi(value);
             else if (key == "new_request_rate_max") cfg.new_request_rate_max = std::stoi(value);
             else if (key == "streaming_percent")    cfg.streaming_percent    = std::stoi(value);
-            else if (key == "log_interval") cfg.log_interval = std::stoi(value);
+            else if (key == "log_interval")         cfg.log_interval         = std::stoi(value);
+            else if (key == "firewall_enabled")     cfg.firewall_enabled     = std::stoi(value);
             else if (key == "output_file")          cfg.output_file          = value;
+            else if (key == "blocked_range") {
+                // format: start_ip,end_ip
+                std::istringstream range_ss(value);
+                std::string start, end;
+                if (std::getline(range_ss, start, ',') && std::getline(range_ss, end)) {
+                    cfg.blocked_ranges.push_back({start, end});
+                }
+            }
         }
     }
 
@@ -126,29 +148,35 @@ int main(int argc, char* argv[]) {
     std::uniform_int_distribution<int> rate_dist(cfg.new_request_rate_min, cfg.new_request_rate_max);
 
     // create load balancers
-    *out << "[INIT] Creating load balancers..." << std::endl;
+    *out << GREEN << "[INIT] Creating load balancers..." << RESET << std::endl;
 
-    load_balancer load_balancer_P('P', cfg.num_servers / 2, cfg.scale_up_threshold, cfg.scale_down_threshold, cfg.scale_wait_cycles);
-    load_balancer load_balancer_S('S', cfg.num_servers - cfg.num_servers / 2, cfg.scale_up_threshold, cfg.scale_down_threshold, cfg.scale_wait_cycles);
+    load_balancer load_balancer_P('P', cfg.num_servers, cfg.scale_up_threshold, cfg.scale_down_threshold, cfg.scale_wait_cycles);
+    load_balancer load_balancer_S('S', cfg.num_servers, cfg.scale_up_threshold, cfg.scale_down_threshold, cfg.scale_wait_cycles);
 
     // create switch router
-    switch_router router(&load_balancer_P, &load_balancer_S);
+    switch_router router(&load_balancer_P, &load_balancer_S, cfg.firewall_enabled);
+
+    // load blocked IP ranges from config
+    for (const auto& range : cfg.blocked_ranges) {
+        router.block_range(range.first, range.second);
+    }
 
     // generate initial queue of servers * 100 requests
     int initial_requests = cfg.num_servers * 100;
     int initial_P = 0, initial_S = 0;
 
-    *out << "[INIT] Generating " << initial_requests << " initial requests..." << std::endl;
+    *out << GREEN << "[INIT] Generating " << initial_requests << " initial requests..." << RESET << std::endl;
 
     for (int i = 0; i < initial_requests; i++) {
         request r = generate_request(cfg.request_time_min, cfg.request_time_max, cfg.streaming_percent);
+        router.route_request(r, 0);
         if (r.get_job_type() == 'P') initial_P++;
         else initial_S++;
     }
 
-    *out << "[INIT] Starting queue size - P: " << initial_P << " | S: " << initial_S << std::endl;
-    *out << "[INIT] Task time range: " << cfg.request_time_min << " - " << cfg.request_time_max << " ticks" << std::endl;
-    *out << "[INIT] Initialization complete. Starting simulation for " << cfg.run_time << " ticks..." << std::endl;
+    *out << GREEN << "[INIT] Starting queue size - P: " << initial_P << " | S: " << initial_S << RESET << std::endl;
+    *out << GREEN << "[INIT] Task time range: " << cfg.request_time_min << " - " << cfg.request_time_max << " ticks" << RESET << std::endl;
+    *out << GREEN << "[INIT] Initialization complete. Starting simulation for " << cfg.run_time << " ticks..." << RESET << std::endl;
 
     // schedule first new request
     int next_request_time = rate_dist(rng);
@@ -170,10 +198,10 @@ int main(int argc, char* argv[]) {
 
         // log queue size every log_interval ticks
         if (time % cfg.log_interval == 0) {
-            *out << "[TICK " << time << "] Queue size - P: " << load_balancer_P.get_queue_size()
+            *out << YELLOW << "[TICK " << time << "] Queue size - P: " << load_balancer_P.get_queue_size()
                  << " | S: " << load_balancer_S.get_queue_size()
                  << " | Servers - P: " << load_balancer_P.get_server_count()
-                 << " | S: " << load_balancer_S.get_server_count() << std::endl;
+                 << " | S: " << load_balancer_S.get_server_count() << RESET << std::endl;
         }
 
         time++;
@@ -182,25 +210,26 @@ int main(int argc, char* argv[]) {
     // end summary
     int ending_queue = load_balancer_P.get_queue_size() + load_balancer_S.get_queue_size();
 
-    *out << "\n===== SIMULATION SUMMARY =====" << std::endl;
-    *out << "Run time:                  " << cfg.run_time << " ticks" << std::endl;
-    *out << "Task time range:           " << cfg.request_time_min << " - " << cfg.request_time_max << " ticks" << std::endl;
-    *out << "Starting queue size:       " << initial_requests << std::endl;
-    *out << "Ending queue size:         " << ending_queue << std::endl;
-    *out << "Total requests generated:  " << total_requests_generated << std::endl;
-    *out << "Routed to P:               " << router.get_routed_P() << std::endl;
-    *out << "Routed to S:               " << router.get_routed_S() << std::endl;
-    *out << "Switch rejected:           " << router.get_rejected() << std::endl;
-    *out << "Active servers (P):        " << load_balancer_P.get_server_count() << std::endl;
-    *out << "Active servers (S):        " << load_balancer_S.get_server_count() << std::endl;
-    *out << "Scale-up events (P):       " << load_balancer_P.get_scale_ups() << std::endl;
-    *out << "Scale-up events (S):       " << load_balancer_S.get_scale_ups() << std::endl;
-    *out << "Scale-down events (P):     " << load_balancer_P.get_scale_downs() << std::endl;
-    *out << "Scale-down events (S):     " << load_balancer_S.get_scale_downs() << std::endl;
-    *out << "Servers deallocated (P):   " << load_balancer_P.get_inactive_count() << std::endl;
-    *out << "Servers deallocated (S):   " << load_balancer_S.get_inactive_count() << std::endl;
-    *out << "Rejected requests (P):     " << load_balancer_P.get_rejected() << std::endl;
-    *out << "Rejected requests (S):     " << load_balancer_S.get_rejected() << std::endl;
+    *out << BOLD << "\n===== SIMULATION SUMMARY =====" << RESET << std::endl;
+    *out << WHITE << "Run time:                  " << cfg.run_time << " ticks" << RESET << std::endl;
+    *out << WHITE << "Task time range:           " << cfg.request_time_min << " - " << cfg.request_time_max << " ticks" << RESET << std::endl;
+    *out << YELLOW << "Starting queue size:       " << initial_requests << RESET << std::endl;
+    *out << YELLOW << "Ending queue size:         " << ending_queue << RESET << std::endl;
+    *out << WHITE << "Total requests generated:  " << total_requests_generated << RESET << std::endl;
+    *out << WHITE << "Routed to P:               " << router.get_routed_P() << RESET << std::endl;
+    *out << WHITE << "Routed to S:               " << router.get_routed_S() << RESET << std::endl;
+    *out << RED   << "Switch rejected:           " << router.get_rejected() << RESET << std::endl;
+    *out << RED   << "Firewall blocked:          " << router.get_blocked() << RESET << std::endl;
+    *out << GREEN << "Active servers (P):        " << load_balancer_P.get_server_count() << RESET << std::endl;
+    *out << GREEN << "Active servers (S):        " << load_balancer_S.get_server_count() << RESET << std::endl;
+    *out << CYAN  << "Scale-up events (P):       " << load_balancer_P.get_scale_ups() << RESET << std::endl;
+    *out << CYAN  << "Scale-up events (S):       " << load_balancer_S.get_scale_ups() << RESET << std::endl;
+    *out << MAGENTA << "Scale-down events (P):   " << load_balancer_P.get_scale_downs() << RESET << std::endl;
+    *out << MAGENTA << "Scale-down events (S):   " << load_balancer_S.get_scale_downs() << RESET << std::endl;
+    *out << RED   << "Servers deallocated (P):   " << load_balancer_P.get_inactive_count() << RESET << std::endl;
+    *out << RED   << "Servers deallocated (S):   " << load_balancer_S.get_inactive_count() << RESET << std::endl;
+    *out << RED   << "Rejected requests (P):     " << load_balancer_P.get_rejected() << RESET << std::endl;
+    *out << RED   << "Rejected requests (S):     " << load_balancer_S.get_rejected() << RESET << std::endl;
 
     if (file_out.is_open()) {
         file_out.close();
